@@ -58,18 +58,17 @@ class BusinessRuleViolation(Exception):
 # Custom exception for database errors
 class DatabaseError(Exception):
     pass
-
 @contextmanager
 def get_db_connection():
-    conn = psycopg2.connect(
-        dbname="claimsupgrade",
-        user="kanika",
-        password="lumiq121",
-        host="localhost",
-        port="5432"
-    )
-    # DATABASE_URL = os.environ['DATABASE_URL']
-    # conn = psycopg2.connect(DATABASE_URL)
+    # conn = psycopg2.connect(
+    #     dbname="claimsupgrade",
+    #     user="kanika",
+    #     password="lumiq121",
+    #     host="localhost",
+    #     port="5432"
+    # )
+    DATABASE_URL = os.environ['DATABASE_URL']
+    conn = psycopg2.connect(DATABASE_URL)
     try:
         yield conn
     finally:
