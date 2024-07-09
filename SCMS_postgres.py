@@ -426,6 +426,11 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', 'https://claims-management-system-swlq.onrender.com')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
 app.config['SECRET_KEY'] = 'kanika'
 blueprint = Blueprint('api', __name__)
 authorizations = {
