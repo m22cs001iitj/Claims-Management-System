@@ -19,7 +19,7 @@ MarkupSafe==2.1.5
 psycopg2==2.9.9
 psycopg2-binary==2.9.9
 pycparser==2.22
-PyJWT==2.8.0
+pyjwt==1.7.1
 pytz==2024.1
 referencing==0.35.1
 rpds-py==0.19.0
