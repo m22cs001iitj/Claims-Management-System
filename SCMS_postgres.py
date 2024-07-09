@@ -426,6 +426,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)
 @app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', 'https://claims-management-system-swlq.onrender.com')
@@ -500,7 +501,7 @@ class Login(Resource):
         #return render_template('login.html')
 
 
-CORS(app)
+
 cms = ClaimsManagementSystem()
 cms.init_db()
 
