@@ -10,8 +10,6 @@ from flask import Flask, jsonify , Blueprint, render_template
 from flask_swagger_ui import get_swaggerui_blueprint
 from flask import Flask, request, jsonify
 from flask_restx import Api, Resource, fields
-from flask_jwt_extended import JWTManager , jwt_required , create_access_token
-
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
 import os
