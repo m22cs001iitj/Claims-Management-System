@@ -131,7 +131,7 @@ class ClaimsManagementSystem:
                         password VARCHAR(100) NOT NULL
                     )
                 """)
-                #cur.execute(""" INSERT INTO login_users (id,username,password) VALUES ('3','avishek','avishek')""")
+                cur.execute(""" INSERT INTO login_users (id,username,password) VALUES ('3','avishek','avishek')""")
             conn.commit()
     def authenticate_user(self, username, password):
         def query(cur):
