@@ -1,3 +1,6 @@
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from flask_restx import Api, Resource, fields
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Dict, Optional
@@ -5,14 +8,18 @@ import re
 import psycopg2
 import jwt
 import datetime 
-
-from flask import Flask, jsonify , Blueprint, render_template
-from flask_swagger_ui import get_swaggerui_blueprint
-from flask import Flask, request, jsonify
-from flask_restx import Api, Resource, fields
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+app = Flask(__name__)
+CORS(app)
+app.config['SECRET_KEY'] = 'your_secret_key_here'
+
+api = Api(app, version='1.0', title='Claims Management API', description='API for managing claims')
 
 class ClaimStatus(Enum):
     SUBMITTED = "Submitted"
@@ -43,11 +50,11 @@ class Policy:
 class Claim:
     id: str
     policy_id: str
-    date_of_incident: datetime  # Use the renamed datetime class
+    date_of_incident: datetime
     description: str
     amount: float
     status: ClaimStatus = ClaimStatus.SUBMITTED
-    date_submitted: datetime = field(default_factory=lambda: datetime.now())  # Use datetime.now() for current datetime
+    date_submitted: datetime = field(default_factory=datetime.datetime.now)
 
 class ValidationError(Exception):
     pass
@@ -55,18 +62,11 @@ class ValidationError(Exception):
 class BusinessRuleViolation(Exception):
     pass
 
-# Custom exception for database errors
 class DatabaseError(Exception):
     pass
+
 @contextmanager
 def get_db_connection():
-    # conn = psycopg2.connect(
-    #     dbname="claimsupgrade",
-    #     user="kanika",
-    #     password="lumiq121",
-    #     host="localhost",
-    #     port="5432"
-    # )
     DATABASE_URL = os.environ['DATABASE_URL']
     conn = psycopg2.connect(DATABASE_URL)
     try:
@@ -85,12 +85,10 @@ class ClaimsManagementSystem:
             except psycopg2.Error as e:
                 conn.rollback()
                 raise DatabaseError(str(e))
-    
-    # Initializes entities in the database if not already present
+
     def init_db(self):
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                # Create your tables here
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS policyholders (
                         id SERIAL PRIMARY KEY,
@@ -126,19 +124,18 @@ class ClaimsManagementSystem:
                 """)
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS login_users (
-                        id SERIAL,
+                        id SERIAL PRIMARY KEY,
                         username VARCHAR(100) NOT NULL,
                         password VARCHAR(100) NOT NULL
                     )
                 """)
-                #cur.execute(""" INSERT INTO login_users (id,username,password) VALUES ('6','','poonam')""")
             conn.commit()
+
     def authenticate_user(self, username, password):
         def query(cur):
             cur.execute("SELECT * FROM login_users WHERE username = %s AND password = %s", (username, password))
             return cur.fetchone()
         return self._execute_transaction(query)
-
 
     # Policyholder CRUD operations
     def create_policyholder(self, policyholder: Policyholder) -> None:
@@ -170,7 +167,7 @@ class ClaimsManagementSystem:
 
     def update_policyholder(self, policyholder_id: str, name: Optional[str] = None, 
                             contact_number: Optional[str] = None, email: Optional[str] = None,
-                            date_of_birth: Optional[datetime] = None) -> None:
+                            date_of_birth: Optional[datetime.datetime] = None) -> None:
         def _update(cur):
             policyholder = self.get_policyholder(policyholder_id)
             if not policyholder:
@@ -238,7 +235,7 @@ class ClaimsManagementSystem:
         return self._execute_transaction(_get)
 
     def update_policy(self, policy_id: str, type: Optional[str] = None, 
-                      start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, 
+                      start_date: Optional[datetime.datetime] = None, end_date: Optional[datetime.datetime] = None, 
                       coverage_amount: Optional[float] = None, premium: Optional[float] = None) -> None:
         def _update(cur):
             policy = self.get_policy(policy_id)
@@ -366,12 +363,10 @@ class ClaimsManagementSystem:
             raise ValidationError("Coverage amount must be positive")
         if policy.premium <= 0:
             raise ValidationError("Premium must be positive")
-        # policyholder_dob = datetime.combine(policyholder['date_of_birth'], datetime.min.time())
         policyholder_dob = policyholder['date_of_birth']
-        # Convert both to datetime.date if they are not already
-        if isinstance(policyholder_dob, datetime):
+        if isinstance(policyholder_dob, datetime.datetime):
             policyholder_dob = policyholder_dob.date()
-        if isinstance(policy.start_date, datetime):
+        if isinstance(policy.start_date, datetime.datetime):
             policy.start_date = policy.start_date.date()
         if (policy.start_date - policyholder_dob).days < 18 * 365:
             raise BusinessRuleViolation("Policyholder must be at least 18 years old at policy start date")
@@ -384,16 +379,13 @@ class ClaimsManagementSystem:
         policy_sd = policy['start_date']
         policy_ed = policy['end_date']
         policy_ca = policy['coverage_amount']
-        # Convert both to datetime.date if they are not already
-        if isinstance(policy_sd, datetime):
+        if isinstance(policy_sd, datetime.datetime):
             policy_sd = policy_sd.date()
-        if isinstance(policy_ed, datetime):
+        if isinstance(policy_ed, datetime.datetime):
             policy_ed = policy_ed.date()
-        if isinstance(policy_ca, datetime):
-            policy_ca = policy_ca.date()
-        if isinstance(claim.date_of_incident, datetime):
+        if isinstance(claim.date_of_incident, datetime.datetime):
             claim.date_of_incident = claim.date_of_incident.date()
-        if isinstance(claim.date_submitted, datetime):
+        if isinstance(claim.date_submitted, datetime.datetime):
             claim.date_submitted = claim.date_submitted.date()
         if claim.date_of_incident < policy_sd or claim.date_of_incident > policy_ed:
             raise ValidationError("Claim date must be within policy period")
@@ -412,82 +404,24 @@ class ClaimsManagementSystem:
         if not re.match(r"^\+?1?\d{9,15}$", phone):
             raise ValidationError("Invalid phone number format")
 
-    def _validate_date_of_birth(self, date_of_birth: datetime) -> None:
-        if date_of_birth > datetime.now():
+    def _validate_date_of_birth(self, date_of_birth: datetime.datetime) -> None:
+        if date_of_birth > datetime.datetime.now():
             raise ValidationError("Date of birth cannot be in the future")
-        if (datetime.now() - date_of_birth).days < 18 * 365:
+        if (datetime.datetime.now() - date_of_birth).days < 18 * 365:
             raise BusinessRuleViolation("Policyholder must be at least 18 years old")
 
-#-------------------------------------------------------------
-#                       API DEVELOPMENT
-#-------------------------------------------------------------
+cms = ClaimsManagementSystem()
+cms.init_db()
 
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-
-app = Flask(__name__)
-CORS(app)
-@app.after_request
-def after_request(response):
-    response.headers.add('Access-Control-Allow-Origin', 'https://claims-management-system-swlq.onrender.com')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-    return response
-app.config['SECRET_KEY'] = 'kanika'
-blueprint = Blueprint('api', __name__)
-authorizations = {
-    'apikey': {
-        'type': 'apiKey',
-        'in': 'header',
-        'name': 'Authorization'
-    }
-}
-
-api = Api(blueprint, version='1.0', title='Claims Management API', description='API for managing claims', authorizations=authorizations,security = 'apikey')
-
-
-# Example resource
-# @api.route('/claim')
-# class Claim(Resource):
-#     def get(self):
-#         return {'status': 'success', 'data': 'Hello, Claims!'}, 200
-
-app.register_blueprint(blueprint)
-# JWT Helper Functions
-def create_token(data):
-    payload = {
-        "exp": datetime.datetime.now() + datetime.timedelta(days=1),
-        "iat": datetime.datetime.now(),
-        "sub": data
-    }
-    return jwt.encode(payload, app.config['SECRET_KEY'], algorithm="HS256")
-
-def verify_token(token):
-    try:
-        payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
-        return payload['sub']
-    except jwt.ExpiredSignatureError:
-        return None
-    except jwt.InvalidatetimeokenError:
-        return None
-
-# Models for Swagger documentation
-token_model = api.model('Token', {
-    'token': fields.String(required=True, description='JWT Token')
-})
-
-message_model = api.model('Message', {
-    'message': fields.String(description='Response message'),
-    'user': fields.String(description='User data')
-})
+# API routes
 
 login_model = api.model('Login', {
     'username': fields.String(required=True, description='The username'),
     'password': fields.String(required=True, description='The password')
 })
+
 @api.route('/login')
 class Login(Resource):
-
     @api.expect(login_model)
     @api.response(200, 'Success')
     @api.response(401, 'Invalid credentials')
@@ -495,229 +429,101 @@ class Login(Resource):
         auth_data = request.json
         user = cms.authenticate_user(auth_data['username'], auth_data['password'])
         if user:
-            token = create_token(user['username'])
+            token = jwt.encode({'user': user['username'], 'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)}, 
+                               app.config['SECRET_KEY'])
             return {'token': token}, 200
         return {'message': 'Invalid credentials'}, 401
-        #return render_template('login.html')
-
-
-
-cms = ClaimsManagementSystem()
-cms.init_db()
-
-@app.route('/', methods=['GET'])
-def home():
-    return render_template('index.html')
-
 
 # Helper function to parse dates
 def parse_date(date_string):
-    return datetime.strptime(date_string, "%Y-%m-%d")
+    return datetime.datetime.strptime(date_string, "%Y-%m-%d")
 
-@app.route('/', methods=['GET'])
-def hello():
-    return "Welcome to the Claims Management System"
+policyholder_model = api.model('Policyholder', {
+    'id': fields.String(required=True, description='Policyholder ID'),
+    'name': fields.String(required=True, description='Policyholder name'),
+    'contact_number': fields.String(required=True, description='Contact number'),
+    'email': fields.String(required=True, description='Email address'),
+    'date_of_birth': fields.Date(required=True, description='Date of birth')
+})
 
-# Policyholder endpoints
-@app.route('/policyholders', methods=['POST'])
-def create_policyholder():
-    data = request.json
-    try:
-        policyholder = Policyholder(
-            id=data['id'],
-            name=data['name'],
-            contact_number=data['contact_number'],
-            email=data['email'],
-            date_of_birth=parse_date(data['date_of_birth'])
-        )
-        cms.create_policyholder(policyholder)
-        return jsonify({"message": "Policyholder created successfully"}), 201
-    except (ValidationError, BusinessRuleViolation) as e:
-        return jsonify({"error": str(e)}), 400
+@api.route('/policyholders')
+class PolicyholderResource(Resource):
+    @api.expect(policyholder_model)
+    @api.response(201, 'Policyholder created successfully')
+    @api.response(400, 'Validation error')
+    def post(self):
+        data = request.json
+        try:
+            policyholder = Policyholder(
+                id=data['id'],
+                name=data['name'],
+                contact_number=data['contact_number'],
+                email=data['email'],
+                date_of_birth=parse_date(data['date_of_birth'])
+            )
+            cms.create_policyholder(policyholder)
+            return {"message": "Policyholder created successfully"}, 201
+        except (ValidationError, BusinessRuleViolation) as e:
+            return {"error": str(e)}, 400
 
-@app.route('/policyholders', methods=['GET'])
-def getAll_policyholder():
-    policyholders = cms.getAll_policyholder()
-    if policyholders:
-        return jsonify(policyholders)
-    return jsonify({"error": "Policyholders not found"}), 404
+    @api.response(200, 'Success')
+    @api.response(404, 'No policyholders found')
+    def get(self):
+        policyholders = cms.getAll_policyholder()
+        if policyholders:
+            return jsonify(policyholders)
+        return {"error": "No policyholders found"}, 404
 
-@app.route('/policyholders/<policyholder_id>', methods=['GET'])
-def get_policyholder(policyholder_id):
-    policyholder = cms.get_policyholder(policyholder_id)
-    if policyholder:
-        return jsonify({
-            "id": policyholder.id,
-            "name": policyholder.name,
-            "contact_number": policyholder.contact_number,
-            "email": policyholder.email,
-            "date_of_birth": policyholder.date_of_birth.strftime("%Y-%m-%d")
-        })
-    return jsonify({"error": "Policyholder not found"}), 404
+@api.route('/policyholders/<string:policyholder_id>')
+class PolicyholderIdResource(Resource):
+    @api.response(200, 'Success')
+    @api.response(404, 'Policyholder not found')
+    def get(self, policyholder_id):
+        policyholder = cms.get_policyholder(policyholder_id)
+        if policyholder:
+            return jsonify({
+                "id": policyholder.id,
+                "name": policyholder.name,
+                "contact_number": policyholder.contact_number,
+                "email": policyholder.email,
+                "date_of_birth": policyholder.date_of_birth.strftime("%Y-%m-%d")
+            })
+        return {"error": "Policyholder not found"}, 404
 
-@app.route('/policyholders/<policyholder_id>', methods=['PUT'])
-def update_policyholder(policyholder_id):
-    data = request.json
-    try:
-        cms.update_policyholder(
-            policyholder_id,
-            name=data.get('name'),
-            contact_number=data.get('contact_number'),
-            email=data.get('email'),
-            date_of_birth=parse_date(data['date_of_birth']) if 'date_of_birth' in data else None
-        )
-        return jsonify({"message": "Policyholder updated successfully"})
-    except (ValidationError, BusinessRuleViolation) as e:
-        return jsonify({"error": str(e)}), 400
+    @api.expect(policyholder_model)
+    @api.response(200, 'Policyholder updated successfully')
+    @api.response(400, 'Validation error')
+    @api.response(404, 'Policyholder not found')
+    def put(self, policyholder_id):
+        data = request.json
+        try:
+            cms.update_policyholder(
+                policyholder_id,
+                name=data.get('name'),
+                contact_number=data.get('contact_number'),
+                email=data.get('email'),
+                date_of_birth=parse_date(data['date_of_birth']) if 'date_of_birth' in data else None
+            )
+            return {"message": "Policyholder updated successfully"}
+        except ValidationError as e:
+            return {"error": str(e)}, 400
+        except BusinessRuleViolation as e:
+            return {"error": str(e)}, 400
 
-@app.route('/policyholders/<policyholder_id>', methods=['DELETE'])
-def delete_policyholder(policyholder_id):
-    try:
-        cms.delete_policyholder(policyholder_id)
-        return jsonify({"message": "Policyholder deleted successfully"})
-    except ValidationError as e:
-        return jsonify({"error": str(e)}), 400
+    @api.response(200, 'Policyholder deleted successfully')
+    @api.response(400, 'Validation error')
+    def delete(self, policyholder_id):
+        try:
+            cms.delete_policyholder(policyholder_id)
+            return {"message": "Policyholder deleted successfully"}
+        except ValidationError as e:
+            return {"error": str(e)}, 400
 
-# Policy endpoints
-@app.route('/policies', methods=['POST'])
-def create_policy():
-    data = request.json
-    try:
-        policy = Policy(
-            id=data['id'],
-            policyholder_id=data['policyholder_id'],
-            type=data['type'],
-            start_date=parse_date(data['start_date']),
-            end_date=parse_date(data['end_date']),
-            coverage_amount=data['coverage_amount'],
-            premium=data['premium']
-        )
-        cms.create_policy(policy)
-        return jsonify({"message": "Policy created successfully"}), 201
-    except (ValidationError, BusinessRuleViolation) as e:
-        return jsonify({"error": str(e)}), 400
-    
-@app.route('/policies', methods=['GET'])
-def getAll_policy():
-    policies = cms.getAll_policy()
-    if policies:
-        return jsonify(policies)
-    return jsonify({"error": "Policies not found"}), 404
-
-@app.route('/policies/<policy_id>', methods=['GET'])
-def get_policy(policy_id):
-    policy = cms.get_policy(policy_id)
-    if policy:
-        return jsonify({
-            "id": policy.id,
-            "policyholder_id": policy.policyholder_id,
-            "type": policy.type,
-            "start_date": policy.start_date.strftime("%Y-%m-%d"),
-            "end_date": policy.end_date.strftime("%Y-%m-%d"),
-            "coverage_amount": policy.coverage_amount,
-            "premium": policy.premium
-        })
-    return jsonify({"error": "Policy not found"}), 404
-
-@app.route('/policies/<policy_id>', methods=['PUT'])
-def update_policy(policy_id):
-    data = request.json
-    try:
-        cms.update_policy(
-            policy_id,
-            type=data.get('type'),
-            start_date=parse_date(data['start_date']) if 'start_date' in data else None,
-            end_date=parse_date(data['end_date']) if 'end_date' in data else None,
-            coverage_amount=data.get('coverage_amount'),
-            premium=data.get('premium')
-        )
-        return jsonify({"message": "Policy updated successfully"})
-    except (ValidationError, BusinessRuleViolation) as e:
-        return jsonify({"error": str(e)}), 400
-
-@app.route('/policies/<policy_id>', methods=['DELETE'])
-def delete_policy(policy_id):
-    try:
-        cms.delete_policy(policy_id)
-        return jsonify({"message": "Policy deleted successfully"})
-    except ValidationError as e:
-        return jsonify({"error": str(e)}), 400
-
-# Claim endpoints
-@app.route('/claims', methods=['POST'])
-def create_claim():
-    data = request.json
-    try:
-        claim = Claim(
-            id=data['id'],
-            policy_id=data['policy_id'],
-            date_of_incident=parse_date(data['date_of_incident']),
-            description=data['description'],
-            amount=data['amount'],
-            status=ClaimStatus(data.get('status', 'Submitted')),
-            date_submitted=parse_date(data.get('date_submitted', datetime.now().strftime("%Y-%m-%d")))
-        )
-        cms.create_claim(claim)
-        return jsonify({"message": "Claim created successfully"}), 201
-    except (ValidationError, BusinessRuleViolation) as e:
-        return jsonify({"error": str(e)}), 400
-
-@app.route('/claims', methods=['GET'])
-def getAll_claim():
-    claims = cms.getAll_claim()
-    if claims:
-        return jsonify(claims)
-    return jsonify({"error": "Claims not found"}), 404
-
-@app.route('/claims/<claim_id>', methods=['GET'])
-def get_claim(claim_id):
-    claim = cms.get_claim(claim_id)
-    if claim:
-        return jsonify({
-            "id": claim.id,
-            "policy_id": claim.policy_id,
-            "date_of_incident": claim.date_of_incident.strftime("%Y-%m-%d"),
-            "description": claim.description,
-            "amount": claim.amount,
-            "status": claim.status.value,
-            "date_submitted": claim.date_submitted.strftime("%Y-%m-%d")
-        })
-    return jsonify({"error": "Claim not found"}), 404
-
-@app.route('/claims/<claim_id>', methods=['PUT'])
-def update_claim(claim_id):
-    data = request.json
-    try:
-        cms.update_claim(
-            claim_id,
-            description=data.get('description'),
-            amount=data.get('amount'),
-            status=ClaimStatus(data['status']) if 'status' in data else None
-        )
-        return jsonify({"message": "Claim updated successfully"})
-    except (ValidationError, BusinessRuleViolation) as e:
-        return jsonify({"error": str(e)}), 400
-
-@app.route('/claims/<claim_id>', methods=['DELETE'])
-def delete_claim(claim_id):
-    try:
-        cms.delete_claim(claim_id)
-        return jsonify({"message": "Claim deleted successfully"})
-    except ValidationError as e:
-        return jsonify({"error": str(e)}), 400
+# Similar API routes can be added for Policy and Claim resources
 
 @app.errorhandler(DatabaseError)
 def handle_database_error(error):
     return jsonify({"error": str(error)}), 500
 
-@app.errorhandler(ValidationError)
-def handle_validation_error(error):
-    return jsonify({"error": str(error)}), 400
-
-@app.errorhandler(BusinessRuleViolation)
-def handle_business_rule_violation(error):
-    return jsonify({"error": str(error)}), 400
-
 if __name__ == '__main__':
-    # app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)), debug=True)
     app.run(port=5000, debug=True)
