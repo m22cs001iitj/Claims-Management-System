@@ -126,7 +126,7 @@ class ClaimsManagementSystem:
                 """)
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS login_users (
-                        id SERIAL PRIMARY KEY,
+                        id SERIAL,
                         username VARCHAR(100) NOT NULL,
                         password VARCHAR(100) NOT NULL
                     )
