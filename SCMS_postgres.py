@@ -426,6 +426,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
+@app.after_request
 def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', 'https://claims-management-system-swlq.onrender.com')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
